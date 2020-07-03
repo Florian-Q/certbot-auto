@@ -1,6 +1,6 @@
 FROM certbot/certbot:latest
 
-RUN apk --no-cache add docker 
+RUN apk --no-cache add docker tzdata
 
 ADD start.sh /start.sh
 ADD copySSL.sh /copySSL.sh
