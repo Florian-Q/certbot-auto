@@ -1,14 +1,4 @@
-# Let’s Encrypt (webroot) in a Docker
-![Letsencrypt Logo](https://letsencrypt.org/images/letsencrypt-logo-horizontal.svg)
-
-Letsencrypt cert auto getting and renewal script based on [letsencrypt](https://quay.io/repository/letsencrypt/letsencrypt) base image.
-
-  - [GitHub](https://github.com/kvaps/docker-letsencrypt-webroot)
-  - [DockerHub](https://hub.docker.com/r/kvaps/letsencrypt-webroot/)
-
-## Status
-
-This project is effectively unmaintained. I will do my best to shepherd pull requests, but cannot guarantee a prompt response and do not have bandwidth to address issues or add new features. Please let me know via an issue if you'd be interested in taking ownership of docker-letsencrypt-webroot.
+# Let’s Encrypt (webroot) in a Docker with cron jobs
 
 ## Usage
 
@@ -22,30 +12,27 @@ This project is effectively unmaintained. I will do my best to shepherd pull req
 ```
 * Then run your web server image with letsencrypt-webroot connected volumes:
 ```bash
-   -v /data/letsencrypt:/etc/letsencrypt
-   -v /data/letsencrypt-www:/tmp/letsencrypt
+   -v /data/letsencrypt/SSL:/etc/cert # juste certificate 
+   -v /tmp/challenges:/tmp/letsencrypt
 ```
 * Run letsencrypt-webroot image:
 ```bash
    docker run \
      --name some-letsencrypt \
      -v /data/letsencrypt:/etc/letsencrypt \
-     -v /data/letsencrypt-www:/tmp/letsencrypt \
+     -v /tmp/challenges:/tmp/letsencrypt \
      -e 'DOMAINS=example.com www.example.com' \
      -e 'EMAIL=your@email.tld' \
      -e 'WEBROOT_PATH=/tmp/letsencrypt' \
-     kvaps/letsencrypt-webroot
+     florianq/certbot-cron
 ```
 
 * Configure your app to use certificates in the following path:
 
-  * **Private key**: `/etc/letsencrypt/live/example.com/privkey.pem`
-  * **Certificate**: `/etc/letsencrypt/live/example.com/cert.pem`
-  * **Intermediates**: `/etc/letsencrypt/live/example.com/chain.pem`
+  * **Private key**: `/etc/cert/example.com/privkey.pem`
+  * **Certificate**: `/etc/cert/example.com/cert.pem`
+  * **Intermediates**: `/etc/cert/example.com/chain.pem`
   * **Certificate + intermediates**: `/etc/letsencrypt/live/example.com/fullchain.pem`
-
-**NOTE**: You should connect `/etc/letsencrypt` directory fully, because if you connect just `/etc/letsencrypt/live`, then symlinks to your certificates inside it will not work!
-
 
 
 ## Renew hook
@@ -68,45 +55,50 @@ This is example of letsencrypt-webroot with nginx configuration:
 
 `docker-compose.yml`
 ```yaml
+version: '3'
+
+volumes:
+  challenges:
+
 nginx:
   restart: always
   image: nginx
-  hostname: example.com
   volumes:
-    - /etc/localtime:/etc/localtime:ro
-    - ./nginx:/etc/nginx:ro
-    - ./letsencrypt/conf:/etc/letsencrypt
-    - ./letsencrypt/html:/tmp/letsencrypt
+    - ./web/nginx:/etc/nginx/conf.d
+    - ./web/letsencrypt/SSL:/SSL
+    - ./logs/nginx:/var/log/nginx
+    - challenges:/var/www/letsencrypt
+  environment:
+    - TZ=Europe/Paris
   ports:
     - 80:80
     - 443:443
-  environment:
-    - LE_RENEW_HOOK=docker kill -s HUP @CONTAINER_NAME@
+  networks:
+    - webproxy
 
 letsencrypt:
   restart: always
-  image: kvaps/letsencrypt-webroot
+  image: florianq/certbot-cron
   volumes:
-    - /etc/localtime:/etc/localtime:ro
     - /var/run/docker.sock:/var/run/docker.sock
-    - ./letsencrypt/conf:/etc/letsencrypt
-    - ./letsencrypt/html:/tmp/letsencrypt
-  links:
-    - nginx
+    - ./web/letsencrypt:/etc/letsencrypt
+    - ./logs/letsencrypt:/var/log/letsencrypt
+    - challenges:/tmp/letsencrypt
   environment:
+    - CRON=22 0 * * 0
+    - TZ=Europe/Paris
     - DOMAINS=example.com www.example.com
     - EMAIL=your@email.tld
     - WEBROOT_PATH=/tmp/letsencrypt
-    - EXP_LIMIT=30
-    - CHECK_FREQ=30
-    - CHICKENEGG=
-    - STAGING=
+    - RSA_KEY_SIZE=4096
+    - POST_HOOK=docker restart nginx
+    - MAX_LOG_BACKUPS=30
+  depends_on:
+    - nginx
+  networks:
+    - webproxy
 ```
 
-## Once run
-
-You also can run it with once mode, just add `once` in your docker command.
-With this option a container will exited right after certificates update.
 
 ## Environment variables
 
